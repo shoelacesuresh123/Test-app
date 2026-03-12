@@ -1,1 +1,240 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Locale Link Auditor</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem;
+      color: #333;
+    }
+    h1 {
+      border-bottom: 2px solid #eee;
+      padding-bottom: 0.5rem;
+    }
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+    textarea, input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    textarea {
+      resize: vertical;
+    }
+    button {
+      background-color: #29707a;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #1f555c;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    .loading {
+      display: none;
+      margin-top: 1rem;
+      font-style: italic;
+      color: #666;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 2rem;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 0.75rem;
+      text-align: left;
+    }
+    th {
+      background-color: #f5f5f5;
+    }
+    .error {
+      color: #cc0000;
+    }
+    .results-section {
+      display: none;
+      margin-top: 2rem;
+    }
+    .header-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Locale Link Auditor</h1>
+  
+  <form id="auditForm">
+    <div class="form-group">
+      <label for="urls">Paste URLs (one per line):</label>
+      <textarea id="urls" name="urls" rows="6" placeholder="https://example.com&#10;https://example.com/about"></textarea>
+    </div>
+    
+    <div class="form-group">
+      <label for="urlFile">Or upload a .txt file of URLs:</label>
+      <input type="file" id="urlFile" name="urlFile" accept=".txt">
+    </div>
+    
+    <div class="form-group">
+      <label for="matchPattern">Match Pattern:</label>
+      <input type="text" id="matchPattern" name="matchPattern" value="/us/en">
+    </div>
+    
+    <button type="submit" id="submitBtn">Run Audit</button>
+    <div id="loading" class="loading">Running audit... This may take a while depending on the number of URLs.</div>
+  </form>
+
+  <div id="resultsSection" class="results-section">
+    <div class="header-actions">
+      <h2>Audit Results</h2>
+      <button id="downloadBtn">Download CSV</button>
+    </div>
+    
+    <table id="resultsTable">
+      <thead>
+        <tr>
+          <th>Page URL</th>
+          <th>Matched Link</th>
+          <th>Link Text</th>
+          <th>Surrounding Text</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Results will be populated here -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let currentResults = [];
+
+    document.getElementById('auditForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const form = e.target;
+      const submitBtn = document.getElementById('submitBtn');
+      const loading = document.getElementById('loading');
+      const resultsSection = document.getElementById('resultsSection');
+      const tbody = document.querySelector('#resultsTable tbody');
+      
+      // Reset UI
+      submitBtn.disabled = true;
+      loading.style.display = 'block';
+      resultsSection.style.display = 'none';
+      tbody.innerHTML = '';
+      currentResults = [];
+      
+      try {
+        const formData = new FormData(form);
+        
+        const response = await fetch('/api/audit', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to run audit');
+        }
+        
+        const data = await response.json();
+        currentResults = data.results;
+        
+        // Populate table
+        currentResults.forEach(result => {
+          const tr = document.createElement('tr');
+          
+          const tdPageUrl = document.createElement('td');
+          tdPageUrl.textContent = result.page_url;
+          
+          const tdMatchedLink = document.createElement('td');
+          tdMatchedLink.textContent = result.matched_link || '-';
+          
+          const tdLinkText = document.createElement('td');
+          tdLinkText.textContent = result.link_text || '-';
+          
+          const tdSurroundingText = document.createElement('td');
+          tdSurroundingText.textContent = result.surrounding_text || '-';
+          
+          const tdError = document.createElement('td');
+          if (result.error) {
+            tdError.textContent = result.error;
+            tdError.className = 'error';
+          } else {
+            tdError.textContent = '-';
+          }
+          
+          tr.appendChild(tdPageUrl);
+          tr.appendChild(tdMatchedLink);
+          tr.appendChild(tdLinkText);
+          tr.appendChild(tdSurroundingText);
+          tr.appendChild(tdError);
+          
+          tbody.appendChild(tr);
+        });
+        
+        resultsSection.style.display = 'block';
+      } catch (error) {
+        alert('Error: ' + error.message);
+      } finally {
+        submitBtn.disabled = false;
+        loading.style.display = 'none';
+      }
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', async () => {
+      if (currentResults.length === 0) return;
+      
+      try {
+        const response = await fetch('/api/download-csv', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ results: currentResults })
+        });
+        
+        if (!response.ok) throw new Error('Failed to generate CSV');
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'audit_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+      } catch (error) {
+        alert('Error downloading CSV: ' + error.message);
+      }
+    });
+  </script>
+</body>
+</html>
